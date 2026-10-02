@@ -1,0 +1,11 @@
+[{
+  "modid": "prideinventory",
+  "name": "PrideInventory",
+  "description": "Extra inventory rows you unlock by playing (advancements, stats, quests, coins), a scrollable panel, and hotbar pages with arrows.",
+  "version": "0.1.0",
+  "mcversion": "1.12.2",
+  "authorList": ["DogPound"],
+  "requiredMods": [],
+  "dependencies": [],
+  "useDependencyInformation": false
+}]
