@@ -22,7 +22,7 @@ import org.lwjgl.input.Keyboard;
  */
 final class WideHotbar extends Gui {
     private static final ResourceLocation WIDGETS = new ResourceLocation("textures/gui/widgets.png");
-    private static final int PAGE_W = 182, GAP = 4;
+    private static final int SLOT = 20;   // one solid bar: every page's 9 slots run straight on from the last (her ask: no gaps)
 
     private static ExtraInv inv() { return ExtraInv.of(Minecraft.getMinecraft().player); }
 
@@ -46,8 +46,8 @@ final class WideHotbar extends Gui {
 
         ScaledResolution r = e.getResolution();
         int w = r.getScaledWidth(), h = r.getScaledHeight(), n = groups(inv);
-        int total = n * PAGE_W + (n - 1) * GAP;
-        int selX = inv.page * (PAGE_W + GAP) + 3 + p.inventory.currentItem * 20;    // selected slot, from the bar's start
+        int total = n * 9 * SLOT + 2;
+        int selX = 3 + (inv.page * 9 + p.inventory.currentItem) * SLOT;              // selected slot, from the bar's start
         int x0 = total <= w - 4 ? (w - total) / 2 : Math.max(w - total - 2, Math.min(2, w / 2 - selX));
         int y = h - 22;
 
@@ -56,11 +56,14 @@ final class WideHotbar extends Gui {
         GlStateManager.color(1f, 1f, 1f, 1f);
         GlStateManager.enableBlend();
         mc.getTextureManager().bindTexture(WIDGETS);
+        // one continuous bar: the hotbar texture's left edge, then its 9-slot middle repeated, then its right edge
+        drawTexturedModalRect(x0, y, 0, 0, 1, 22);
         for (int g = 0; g < n; g++) {
-            int gx = x0 + g * (PAGE_W + GAP);
-            if (gx + PAGE_W < 0 || gx > w) continue;
-            drawTexturedModalRect(gx, y, 0, 0, PAGE_W, 22);              // a real hotbar strip per page
+            int gx = x0 + 1 + g * 9 * SLOT;
+            if (gx + 9 * SLOT < 0 || gx > w) continue;
+            drawTexturedModalRect(gx, y, 1, 0, 9 * SLOT, 22);
         }
+        drawTexturedModalRect(x0 + 1 + n * 9 * SLOT, y, 181, 0, 1, 22);
         drawTexturedModalRect(x0 + selX - 4, y - 1, 0, 22, 24, 24);     // selection frame
         // offhand slot, where vanilla puts it (left of the bar) — or above the bar's left end when the bar is full width
         ItemStack off = p.getHeldItemOffhand();
@@ -70,8 +73,8 @@ final class WideHotbar extends Gui {
         RenderHelper.enableGUIStandardItemLighting();
         GlStateManager.enableRescaleNormal();
         for (int g = 0; g < n; g++) {
-            int gx = x0 + g * (PAGE_W + GAP);
-            if (gx + PAGE_W < 0 || gx > w) continue;
+            int gx = x0 + g * 9 * SLOT;
+            if (gx + 9 * SLOT < 0 || gx > w) continue;
             for (int c = 0; c < 9; c++) {
                 ItemStack s = at(p, inv, n, g, c);
                 if (s.isEmpty()) continue;
@@ -79,7 +82,7 @@ final class WideHotbar extends Gui {
                 mc.getRenderItem().renderItemAndEffectIntoGUI(p, s, ix, iy);
                 mc.getRenderItem().renderItemOverlays(mc.fontRenderer, s, ix, iy);
             }
-            if (n > 1) mc.fontRenderer.drawStringWithShadow(String.valueOf(g + 1), gx + 1, y - 9, g == inv.page ? 0xFFFFFF55 : 0xFFAAAAAA);
+            if (n > 1) mc.fontRenderer.drawStringWithShadow(String.valueOf(g * 9 + 1), gx + 2, y - 9, g == inv.page ? 0xFFFFFF55 : 0xFFAAAAAA);   // slot number where each row starts
         }
         if (!off.isEmpty()) {
             mc.getRenderItem().renderItemAndEffectIntoGUI(p, off, ox + 3, oy + 4);
@@ -89,6 +92,18 @@ final class WideHotbar extends Gui {
         GlStateManager.disableRescaleNormal();
         GlStateManager.disableBlend();
     }
+
+    /** select slot number {@code n} (1-based along the whole bar) — the "jump to slot" key's box calls this */
+    static void select(int n) {
+        Minecraft mc = Minecraft.getMinecraft();
+        ExtraInv inv = inv();
+        if (mc.player == null || inv == null) return;
+        int g = Math.max(1, Math.min(groups(inv) * 9, n)) - 1, page = g / 9;
+        mc.player.inventory.currentItem = g % 9;
+        if (page != inv.page) { Net.CH.sendToServer(new Net.GoTo(page)); inv.page = page; }
+    }
+
+    static int slots() { return groups(inv()) * 9; }
 
     /** the scroll wheel walks along the whole bar (held Shift/Ctrl/Alt = leave the wheel to other mods) */
     @SubscribeEvent

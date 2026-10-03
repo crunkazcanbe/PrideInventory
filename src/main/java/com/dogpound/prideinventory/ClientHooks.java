@@ -31,10 +31,12 @@ public final class ClientHooks {
     private static final int PREV_X = 107, NEXT_X = 141, BUY_X = 157;   // footer buttons, from the panel's left: ◀ 1/7 ▶ +
     private static final KeyBinding NEXT = new KeyBinding("Next hotbar page", Keyboard.KEY_APOSTROPHE, "PrideInventory");
     private static final KeyBinding PREV = new KeyBinding("Previous hotbar page", Keyboard.KEY_NONE, "PrideInventory");
+    private static final KeyBinding JUMP = new KeyBinding("Jump to hotbar slot # (type 1-100)", Keyboard.KEY_SEMICOLON, "PrideInventory");
 
     static void register() {
         ClientRegistry.registerKeyBinding(NEXT);
         ClientRegistry.registerKeyBinding(PREV);
+        ClientRegistry.registerKeyBinding(JUMP);
         MinecraftForge.EVENT_BUS.register(new ClientHooks());
         MinecraftForge.EVENT_BUS.register(new WideHotbar());
     }
@@ -53,6 +55,7 @@ public final class ClientHooks {
         if (e.phase != TickEvent.Phase.END || Minecraft.getMinecraft().player == null) return;
         while (NEXT.isPressed()) Net.CH.sendToServer(new Net.Flip(1));
         while (PREV.isPressed()) Net.CH.sendToServer(new Net.Flip(-1));
+        while (JUMP.isPressed()) if (Config.wideHotbar && Minecraft.getMinecraft().currentScreen == null) Minecraft.getMinecraft().displayGuiScreen(new GuiSlotNumber());
     }
 
     // ---------------- panel geometry (relative to the inventory's top-left) ----------------
