@@ -6,7 +6,7 @@ import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.gui.GuiTextField;
 import org.lwjgl.input.Keyboard;
 
-/** Her ask 2026-10-02: type a slot number (1 to every unlocked slot) and that slot is selected. Enter = go, Esc = cancel. */
+/** Requested: type a slot number (1 to every unlocked slot) and that slot is selected. Enter = go, Esc = cancel. */
 final class GuiSlotNumber extends GuiScreen {
     private GuiTextField box;
 

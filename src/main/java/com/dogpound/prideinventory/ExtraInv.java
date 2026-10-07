@@ -1,10 +1,15 @@
 package com.dogpound.prideinventory;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import javax.annotation.Nullable;
 
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
+import net.minecraft.nbt.NBTTagString;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.common.capabilities.Capability;
@@ -28,6 +33,10 @@ public final class ExtraInv {
     public int page;              // hotbar page shown right now (0 = the original hotbar)
     // progress numbers the tooltip shows (client copy)
     public int advancements, hours, blocksMined, mobKills;
+    // inventory sharing: locked (false) = others only look; giveWhenLocked = they may still give you things
+    public boolean shareOpen, giveWhenLocked;
+    public final List<String> shareLog = new ArrayList<>();
+    static final int LOG_SIZE = 30;
     boolean wasEverything;        // creative/op/list state at the last count (not saved): a flip either way recounts at once
 
     public static ExtraInv of(EntityPlayer p) {
@@ -45,6 +54,11 @@ public final class ExtraInv {
         t.setInteger("granted", granted);
         t.setInteger("page", page);
         t.setInteger("unlocked", unlocked);
+        t.setBoolean("shareOpen", shareOpen);
+        t.setBoolean("giveWhenLocked", giveWhenLocked);
+        NBTTagList log = new NBTTagList();
+        for (String line : shareLog) log.appendTag(new NBTTagString(line));
+        t.setTag("shareLog", log);
         return t;
     }
 
@@ -58,6 +72,11 @@ public final class ExtraInv {
         granted = t.getInteger("granted");
         page = t.getInteger("page");
         unlocked = t.getInteger("unlocked");
+        shareOpen = t.getBoolean("shareOpen");
+        giveWhenLocked = t.getBoolean("giveWhenLocked");
+        shareLog.clear();
+        NBTTagList log = t.getTagList("shareLog", 8);
+        for (int i = 0; i < log.tagCount(); i++) shareLog.add(log.getStringTagAt(i));
     }
 
     static void register() {

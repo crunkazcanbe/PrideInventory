@@ -27,16 +27,19 @@ public final class ClientHooks {
     static boolean everything;
     private static int scroll;
     private static boolean dragging;
-    private static final int ID_PREV = 0x50494E01, ID_NEXT = 0x50494E02, ID_BUY = 0x50494E03;
+    private static final int ID_PREV = 0x50494E01, ID_NEXT = 0x50494E02, ID_BUY = 0x50494E03, ID_LOCK = 0x50494E04;
     private static final int PREV_X = 107, NEXT_X = 141, BUY_X = 157;   // footer buttons, from the panel's left: ◀ 1/7 ▶ +
     private static final KeyBinding NEXT = new KeyBinding("Next hotbar page", Keyboard.KEY_APOSTROPHE, "PrideInventory");
     private static final KeyBinding PREV = new KeyBinding("Previous hotbar page", Keyboard.KEY_NONE, "PrideInventory");
+    private static final KeyBinding LOCK = new KeyBinding("Lock / unlock your inventory for others", Keyboard.KEY_NONE, "PrideInventory");
+    private static LockButton lockButton;
     private static final KeyBinding JUMP = new KeyBinding("Jump to hotbar slot # (type 1-100)", Keyboard.KEY_SEMICOLON, "PrideInventory");
 
     static void register() {
         ClientRegistry.registerKeyBinding(NEXT);
         ClientRegistry.registerKeyBinding(PREV);
         ClientRegistry.registerKeyBinding(JUMP);
+        ClientRegistry.registerKeyBinding(LOCK);
         MinecraftForge.EVENT_BUS.register(new ClientHooks());
         MinecraftForge.EVENT_BUS.register(new WideHotbar());
     }
@@ -55,24 +58,61 @@ public final class ClientHooks {
         if (e.phase != TickEvent.Phase.END || Minecraft.getMinecraft().player == null) return;
         while (NEXT.isPressed()) Net.CH.sendToServer(new Net.Flip(1));
         while (PREV.isPressed()) Net.CH.sendToServer(new Net.Flip(-1));
+        while (LOCK.isPressed()) Net.CH.sendToServer(new Net.Lock(0));
         while (JUMP.isPressed()) if (Config.wideHotbar && Minecraft.getMinecraft().currentScreen == null) Minecraft.getMinecraft().displayGuiScreen(new GuiSlotNumber());
     }
 
     // ---------------- panel geometry (relative to the inventory's top-left) ----------------
-    private static boolean right() { return "right".equals(Config.panelSide); }
-    private static int panelX(GuiContainer g) { return right() ? g.getXSize() + 4 : (g.getXSize() - 176) / 2; }
+    // Requested: at big GUI scales the panel ran off the screen. Now it goes where it FITS — below the
+    // inventory, else to the right, else to the left — showing as many rows as fit (the rest scroll); EMI's item
+    // list moves out of its way (EmiCompat).
+    private static String side = "below";
+    private static int fitRows = 1;
+
+    /** work out where the panel goes for this screen size and GUI scale (called before every use) */
+    static void layout(GuiContainer g) {
+        int want = Math.max(1, Math.min(Config.visibleRows, Math.max(1, Config.maxRows)));
+        int belowTop = g.getGuiTop() + g.getYSize() + (creative(g) ? 30 : 2);
+        int rowsBelow = (g.height - belowTop - 2 - 26) / 18;
+        int rowsSide = (g.height - 4 - 26) / 18;
+        boolean rightFits = g.getGuiLeft() + g.getXSize() + 4 + 176 <= g.width;
+        boolean leftFits = g.getGuiLeft() - 180 >= 0;
+        String pref = Config.panelSide;
+        if ("right".equals(pref) && rightFits) side = "right";
+        else if ("left".equals(pref) && leftFits) side = "left";
+        else if ("below".equals(pref) || rowsBelow >= want || (!rightFits && !leftFits)) side = "below";
+        else side = rightFits ? "right" : "left";
+        fitRows = Math.max(1, Math.min(want, "below".equals(side) ? rowsBelow : rowsSide));
+    }
+
+    private static int visible() { return fitRows; }
+    private static int panelX(GuiContainer g) {
+        return "right".equals(side) ? g.getXSize() + 4 : "left".equals(side) ? -180 : (g.getXSize() - 176) / 2;
+    }
     private static int panelH() { return 14 + visible() * 18 + 12; }   // rows + the footer strip (◀ 1/7 ▶ +)
     private static int panelY(GuiContainer g) {
-        if (right()) return 0;
+        if (!"below".equals(side)) return Math.max(-g.getGuiTop() + 2, Math.min(0, g.height - g.getGuiTop() - panelH() - 2));
         int y = g.getYSize() + (creative(g) ? 30 : 2);                  // creative: below its bottom tab row
-        return Math.min(y, g.height - g.getGuiTop() - panelH());       // never off the bottom of the screen (small windows)
+        return Math.min(y, g.height - g.getGuiTop() - panelH());       // never off the bottom of the screen
+    }
+
+    /** the panel's rectangle on screen (for EMI to keep clear), or null when it isn't shown */
+    static int[] panelBounds(net.minecraft.client.gui.GuiScreen s) {
+        if (!(s instanceof GuiContainer) || !shows(s)) return null;
+        GuiContainer g = (GuiContainer) s;
+        layout(g);
+        return new int[]{g.getGuiLeft() + panelX(g), g.getGuiTop() + panelY(g), 176, panelH()};
     }
 
     private static boolean creative(net.minecraft.client.gui.GuiScreen g) { return g instanceof net.minecraft.client.gui.inventory.GuiContainerCreative; }
 
-    /** her ask 2026-09-28: the panel in the survival inventory AND in creative's inventory tab, under the whole inventory */
+    /** Requested: the panel in the survival inventory AND in creative's inventory tab, under the whole inventory */
     static boolean shows(net.minecraft.client.gui.GuiScreen g) {
-        if (Config.maxRows == 0) return false;
+        return Config.maxRows != 0 && invScreen(g);
+    }
+
+    /** the survival inventory, or creative's inventory tab */
+    static boolean invScreen(net.minecraft.client.gui.GuiScreen g) {
         if (g instanceof GuiInventory) return true;
         if (!creative(g)) return false;
         try {
@@ -95,12 +135,14 @@ public final class ClientHooks {
         for (Class<?> c : net.minecraft.client.gui.inventory.GuiContainerCreative.class.getDeclaredClasses()) if (c.getSimpleName().equals("CreativeSlot")) return c;
         return Object.class;
     }
-    private static int visible() { return Math.max(1, Math.min(Config.visibleRows, Math.max(1, Config.maxRows))); }
 
     @SubscribeEvent
     public void onInit(GuiScreenEvent.InitGuiEvent.Post e) {
+        if (Config.sharing && (e.getGui() instanceof GuiInventory || creative(e.getGui())))
+            e.getButtonList().add(lockButton = new LockButton((GuiContainer) e.getGui()));
         if (!(e.getGui() instanceof GuiInventory) || Config.maxRows == 0) return;
         GuiContainer g = (GuiContainer) e.getGui();
+        layout(g);
         // all inside the panel's bottom strip, right end: ◀ 1/7 ▶ +  (by the hotbar they sat on the side dock)
         int px = g.getGuiLeft() + panelX(g), fy = g.getGuiTop() + panelY(g) + 6 + visible() * 18 + 2;
         if (Config.hotbarPages > 0) {
@@ -118,6 +160,7 @@ public final class ClientHooks {
         if (id == ID_PREV) { Net.CH.sendToServer(new Net.Flip(-1)); e.setCanceled(true); }
         else if (id == ID_NEXT) { Net.CH.sendToServer(new Net.Flip(1)); e.setCanceled(true); }
         else if (id == ID_BUY) { Net.CH.sendToServer(new Net.Buy()); e.setCanceled(true); }
+        else if (id == ID_LOCK) { Net.CH.sendToServer(new Net.Lock(net.minecraft.client.gui.GuiScreen.isShiftKeyDown() ? 1 : 0)); e.setCanceled(true); }
     }
 
     private static void clamp() {
@@ -126,6 +169,7 @@ public final class ClientHooks {
 
     /** put the visible rows' slots on screen, hide the rest (hidden slots can't be clicked or drawn) */
     private static void place(GuiContainer g) {
+        layout(g);
         int px = panelX(g) + 8, py = panelY(g) + 7;
         for (Slot s : g.inventorySlots.inventorySlots) {
             ExtraSlot es = extra(s);
@@ -169,6 +213,7 @@ public final class ClientHooks {
         ExtraInv inv = inv();
         if (inv == null) return;
         Minecraft mc = Minecraft.getMinecraft();
+        layout(g);
         int x = g.getGuiLeft() + panelX(g), y = g.getGuiTop() + panelY(g);
         GlStateManager.disableLighting();
         GlStateManager.disableDepth();
@@ -224,8 +269,10 @@ public final class ClientHooks {
     /** mouse wheel over the panel scrolls it; dragging the bar scrolls it */
     @SubscribeEvent
     public void onMouse(GuiScreenEvent.MouseInputEvent.Pre e) {
-        if (!shows(e.getGui()) || Config.maxRows <= visible()) return;
+        if (!shows(e.getGui())) return;
         GuiContainer g = (GuiContainer) e.getGui();
+        layout(g);
+        if (Config.maxRows <= visible()) return;
         ScaledResolution sr = new ScaledResolution(Minecraft.getMinecraft());
         int mx = Mouse.getEventX() * sr.getScaledWidth() / Minecraft.getMinecraft().displayWidth;
         int my = sr.getScaledHeight() - Mouse.getEventY() * sr.getScaledHeight() / Minecraft.getMinecraft().displayHeight - 1;
@@ -253,6 +300,46 @@ public final class ClientHooks {
         String s = "◀ " + (inv.page + 1) + "/" + pages(inv) + " ▶";
         int x = sr.getScaledWidth() / 2 - 91 - 6 - mc.fontRenderer.getStringWidth(s), y = sr.getScaledHeight() - 15;
         mc.fontRenderer.drawStringWithShadow(s, x, y, 0xFFF5A9B8);
+    }
+
+    /** the padlock's tooltip, on top of everything */
+    @SubscribeEvent
+    public void onLockTip(GuiScreenEvent.DrawScreenEvent.Post e) {
+        LockButton b = lockButton;
+        ExtraInv inv = inv();
+        if (b == null || b.g != e.getGui() || !b.visible || !b.isMouseOver() || inv == null) return;
+        List<String> tip = new ArrayList<>();
+        if (inv.shareOpen) {
+            tip.add("§dInventory sharing: §aUNLOCKED");
+            tip.add("§7Players who right-click you can take and give.");
+            tip.add("§7Click to lock (they can only look).");
+        } else {
+            tip.add("§dInventory sharing: §cLOCKED");
+            tip.add("§7Others can see your inventory — click to let them take/give");
+        }
+        tip.add("§7Shift-click: let people give you items while locked: " + (inv.giveWhenLocked ? "§aON" : "§cOFF"));
+        tip.add("§8/invlock on|off · /invlock gifts on|off · /invlock log");
+        e.getGui().drawHoveringText(tip, e.getMouseX(), e.getMouseY());
+    }
+
+    /** the padlock in the top-right corner of your inventory (follows the recipe book moving it) */
+    static final class LockButton extends GuiButton {
+        final GuiContainer g;
+        LockButton(GuiContainer g) { super(ID_LOCK, 0, 0, 13, 13, ""); this.g = g; }
+
+        @Override
+        public void drawButton(Minecraft mc, int mx, int my, float pt) {
+            visible = invScreen(g);
+            if (!visible) return;
+            x = g.getGuiLeft() + g.getXSize() - 19;
+            y = g.getGuiTop() + 4;
+            ExtraInv inv = inv();
+            boolean open = inv != null && inv.shareOpen;
+            hovered = mx >= x && my >= y && mx < x + width && my < y + height;
+            Gui.drawRect(x, y, x + width, y + height, hovered ? 0xE03A2D55 : 0xD01C1530);
+            Gui.drawRect(x, y, x + width, y + 1, 0xFF5BCEFA); Gui.drawRect(x, y + height - 1, x + width, y + height, 0xFF5BCEFA);
+            GuiShare.drawLock(x + 3, y + 2, open, open ? GuiShare.OPEN : GuiShare.LOCKED);
+        }
     }
 
     /** small square button (arrows, +) */

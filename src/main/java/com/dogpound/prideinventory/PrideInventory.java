@@ -28,6 +28,8 @@ import net.minecraftforge.fml.common.gameevent.TickEvent;
 /** PrideInventory — extra rows you unlock by playing, hotbar pages, and a hook quests can call. */
 @Mod(modid = "prideinventory", name = "PrideInventory", version = "0.1.0")
 public class PrideInventory {
+    @Mod.Instance("prideinventory")
+    public static PrideInventory INSTANCE;
 
     @Mod.EventHandler
     public void pre(FMLPreInitializationEvent e) {
@@ -35,12 +37,16 @@ public class PrideInventory {
         ExtraInv.register();
         Net.init();
         MinecraftForge.EVENT_BUS.register(this);
+        Share share = new Share();
+        MinecraftForge.EVENT_BUS.register(share);
+        net.minecraftforge.fml.common.network.NetworkRegistry.INSTANCE.registerGuiHandler(this, share);
         if (FMLCommonHandler.instance().getSide().isClient()) ClientHooks.register();
     }
 
     @Mod.EventHandler
     public void serverStart(FMLServerStartingEvent e) {
         e.registerServerCommand(new Command());
+        e.registerServerCommand(new Share.LockCommand());
     }
 
     // ---------------- the API other mods (the quest mod) call ----------------
@@ -81,6 +87,7 @@ public class PrideInventory {
         ExtraInv from = ExtraInv.of(e.getOriginal()), to = ExtraInv.of(e.getEntityPlayer());
         if (from == null || to == null) return;
         to.bought = from.bought; to.granted = from.granted; to.unlocked = from.unlocked;
+        to.shareOpen = from.shareOpen; to.giveWhenLocked = from.giveWhenLocked; to.shareLog.addAll(from.shareLog);
         boolean keep = !e.isWasDeath() || Config.keepOnDeath || e.getEntityPlayer().world.getGameRules().getBoolean("keepInventory");
         if (keep) {
             for (int i = 0; i < from.items.getSlots(); i++) to.items.setStackInSlot(i, from.items.getStackInSlot(i).copy());

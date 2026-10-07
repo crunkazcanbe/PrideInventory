@@ -9,7 +9,7 @@ buildscript {
 }
 apply plugin: 'net.minecraftforge.gradle'
 
-version = '0.1.0'
+version = '0.2.0'
 group = 'com.dogpound.prideinventory'
 archivesBaseName = 'PrideInventory-1.12.2'
 sourceCompatibility = targetCompatibility = compileJava.sourceCompatibility = compileJava.targetCompatibility = '1.8'
@@ -22,6 +22,7 @@ repositories { mavenCentral() }
 
 dependencies {
     minecraft 'net.minecraftforge:forge:1.12.2-14.23.5.2860'
+    compileOnly files('libs/emi.jar')
     compileOnly files('libs/mixinbooter-api.jar')
     compileOnly files('libs/sponge-mixin.jar')
     compileOnly files('libs/realmcoin-dev.jar')   // optional: buy rows with coins

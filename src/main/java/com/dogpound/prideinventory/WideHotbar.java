@@ -15,16 +15,28 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import org.lwjgl.input.Keyboard;
 
 /**
- * Her ask 2026-10-02: the hotbar runs along the whole bottom of the screen, edge to edge, and shows only what's
+ * Requested: the hotbar runs along the whole bottom of the screen, edge to edge, and shows only what's
  * UNLOCKED — page 1 (the real 9 slots) then every unlocked row, left to right. The scroll wheel walks along all of it;
  * stepping into another row asks the server to swap that row into the real hotbar (Pages.goTo), so every other mod
  * still sees a normal 9-slot hotbar and nothing can be duplicated. Number keys still pick within the current page.
  */
 final class WideHotbar extends Gui {
     private static final ResourceLocation WIDGETS = new ResourceLocation("textures/gui/widgets.png");
-    private static final int SLOT = 20;   // one solid bar: every page's 9 slots run straight on from the last (her ask: no gaps)
+    private static final int SLOT = 20;   // one solid bar: every page's 9 slots run straight on from the last (requested feature)
 
     private static ExtraInv inv() { return ExtraInv.of(Minecraft.getMinecraft().player); }
+
+    /** The page the player just scrolled to, before the server has swapped the items (bug report 2026-10-03:
+     *  items "bounced" into the next section and back). Items are always drawn by the CONFIRMED page
+     *  (inv.page, set by the server's sync together with the swapped slots); only the selection frame
+     *  moves ahead to the pending page. */
+    private static int pendingPage = -1;
+    private static long pendingAt;
+
+    private static int shownPage(ExtraInv inv) {
+        if (pendingPage == inv.page || System.currentTimeMillis() - pendingAt > 1500) pendingPage = -1;   // caught up / server said no
+        return pendingPage >= 0 ? pendingPage : inv.page;
+    }
 
     /** pages shown: the real hotbar + every unlocked row that can be a page */
     private static int groups(ExtraInv inv) { return inv == null ? 1 : Pages.pageRows(inv.unlocked) + 1; }
@@ -33,6 +45,27 @@ final class WideHotbar extends Gui {
     private static ItemStack at(EntityPlayer p, ExtraInv inv, int pages, int L, int c) {
         int i = Math.floorMod(L - inv.page, pages);
         return i == 0 ? p.inventory.mainInventory.get(c) : inv.items.getStackInSlot((i - 1) * 9 + c);
+    }
+
+    // ---- PrideCanvas' HUD theme (requested feature), found by reflection
+    private static java.lang.reflect.Method band, slot, themed;
+    private static boolean themeTried;
+
+    private static boolean themed() {
+        if (!themeTried) {
+            themeTried = true;
+            try {
+                Class<?> c = Class.forName("com.dogpound.canvas.DPHud");
+                band = c.getMethod("hotbarBand", int.class, int.class, int.class, int.class);
+                slot = c.getMethod("hotbarSlot", int.class, int.class, int.class, boolean.class);
+                themed = c.getDeclaredMethod("active");
+                themed.setAccessible(true);
+            } catch (Throwable t) { band = null; }
+        }
+        try {
+            return band != null && (Boolean) themed.invoke(null)
+                    && Class.forName("com.dogpound.canvas.DPConfig").getField("hudThemeHotbar").getBoolean(null);
+        } catch (Throwable t) { return false; }
     }
 
     @SubscribeEvent(priority = EventPriority.HIGH)
@@ -47,28 +80,43 @@ final class WideHotbar extends Gui {
         ScaledResolution r = e.getResolution();
         int w = r.getScaledWidth(), h = r.getScaledHeight(), n = groups(inv);
         int total = n * 9 * SLOT + 2;
-        int selX = 3 + (inv.page * 9 + p.inventory.currentItem) * SLOT;              // selected slot, from the bar's start
+        int selX = 3 + (shownPage(inv) * 9 + p.inventory.currentItem) * SLOT;              // selected slot, from the bar's start
         int x0 = total <= w - 4 ? (w - total) / 2 : Math.max(w - total - 2, Math.min(2, w / 2 - selX));
         int y = h - 22;
 
-        drawRect(0, y - 1, w, h, 0x99000000);                         // the band: edge to edge
-        drawRect(0, y - 1, w, y, 0xFFB46CFF);                         // thin Pride accent line on top
-        GlStateManager.color(1f, 1f, 1f, 1f);
-        GlStateManager.enableBlend();
-        mc.getTextureManager().bindTexture(WIDGETS);
-        // one continuous bar: the hotbar texture's left edge, then its 9-slot middle repeated, then its right edge
-        drawTexturedModalRect(x0, y, 0, 0, 1, 22);
-        for (int g = 0; g < n; g++) {
-            int gx = x0 + 1 + g * 9 * SLOT;
-            if (gx + 9 * SLOT < 0 || gx > w) continue;
-            drawTexturedModalRect(gx, y, 1, 0, 9 * SLOT, 22);
-        }
-        drawTexturedModalRect(x0 + 1 + n * 9 * SLOT, y, 181, 0, 1, 22);
-        drawTexturedModalRect(x0 + selX - 4, y - 1, 0, 22, 24, 24);     // selection frame
-        // offhand slot, where vanilla puts it (left of the bar) — or above the bar's left end when the bar is full width
         ItemStack off = p.getHeldItemOffhand();
         int ox = x0 >= 31 ? x0 - 29 : 2, oy = x0 >= 31 ? y - 1 : y - 26;
-        if (!off.isEmpty()) drawTexturedModalRect(ox, oy, 24, 22, 29, 24);
+        if (themed()) {
+            // the HUD's theme: same band colours and decorations, soft rounded slots, glowing selection
+            try {
+                band.invoke(null, 0, y - 1, w, h - y + 1);
+                int sel = shownPage(inv) * 9 + p.inventory.currentItem;
+                for (int g = 0; g < n; g++) {
+                    int gx = x0 + 1 + g * 9 * SLOT;
+                    if (gx + 9 * SLOT < 0 || gx > w) continue;
+                    for (int c = 0; c < 9; c++) slot.invoke(null, gx + c * SLOT, y + 1, SLOT, g * 9 + c == sel);
+                }
+                if (!off.isEmpty()) slot.invoke(null, ox + 3, oy + 2, SLOT, false);
+            } catch (Throwable t) { band = null; }
+        } else {
+            drawRect(0, y - 1, w, h, 0x99000000);                         // the band: edge to edge
+            drawRect(0, y - 1, w, y, 0xFFB46CFF);                         // thin Pride accent line on top
+            GlStateManager.color(1f, 1f, 1f, 1f);
+            GlStateManager.enableBlend();
+            mc.getTextureManager().bindTexture(WIDGETS);
+            // one continuous bar: the hotbar texture's left edge, then its 9-slot middle repeated, then its right edge
+            drawTexturedModalRect(x0, y, 0, 0, 1, 22);
+            for (int g = 0; g < n; g++) {
+                int gx = x0 + 1 + g * 9 * SLOT;
+                if (gx + 9 * SLOT < 0 || gx > w) continue;
+                drawTexturedModalRect(gx, y, 1, 0, 9 * SLOT, 22);
+            }
+            drawTexturedModalRect(x0 + 1 + n * 9 * SLOT, y, 181, 0, 1, 22);
+            drawTexturedModalRect(x0 + selX - 4, y - 1, 0, 22, 24, 24);     // selection frame
+            // offhand slot, where vanilla puts it (left of the bar) — or above the bar's left end when the bar is full width
+            if (!off.isEmpty()) drawTexturedModalRect(ox, oy, 24, 22, 29, 24);
+        }
+        GlStateManager.color(1f, 1f, 1f, 1f);
 
         RenderHelper.enableGUIStandardItemLighting();
         GlStateManager.enableRescaleNormal();
@@ -82,7 +130,7 @@ final class WideHotbar extends Gui {
                 mc.getRenderItem().renderItemAndEffectIntoGUI(p, s, ix, iy);
                 mc.getRenderItem().renderItemOverlays(mc.fontRenderer, s, ix, iy);
             }
-            if (n > 1) mc.fontRenderer.drawStringWithShadow(String.valueOf(g * 9 + 1), gx + 2, y - 9, g == inv.page ? 0xFFFFFF55 : 0xFFAAAAAA);   // slot number where each row starts
+            if (n > 1) mc.fontRenderer.drawStringWithShadow(String.valueOf(g * 9 + 1), gx + 2, y - 9, g == shownPage(inv) ? 0xFFFFFF55 : 0xFFAAAAAA);   // slot number where each row starts
         }
         if (!off.isEmpty()) {
             mc.getRenderItem().renderItemAndEffectIntoGUI(p, off, ox + 3, oy + 4);
@@ -100,7 +148,7 @@ final class WideHotbar extends Gui {
         if (mc.player == null || inv == null) return;
         int g = Math.max(1, Math.min(groups(inv) * 9, n)) - 1, page = g / 9;
         mc.player.inventory.currentItem = g % 9;
-        if (page != inv.page) { Net.CH.sendToServer(new Net.GoTo(page)); inv.page = page; }
+        if (page != shownPage(inv)) { Net.CH.sendToServer(new Net.GoTo(page)); pendingPage = page; pendingAt = System.currentTimeMillis(); }
     }
 
     static int slots() { return groups(inv()) * 9; }
@@ -117,12 +165,12 @@ final class WideHotbar extends Gui {
         if (inv == null || n <= 1) return;                           // one page: vanilla's own scrolling is the same
         e.setCanceled(true);
         int total = n * 9, step = e.getDwheel() > 0 ? -1 : 1;
-        int g = Math.floorMod(inv.page * 9 + mc.player.inventory.currentItem + step, total);
+        int g = Math.floorMod(shownPage(inv) * 9 + mc.player.inventory.currentItem + step, total);
         int page = g / 9;
         mc.player.inventory.currentItem = g % 9;
-        if (page != inv.page) {
+        if (page != shownPage(inv)) {
             Net.CH.sendToServer(new Net.GoTo(page));
-            inv.page = page;                                         // move the frame now; the server's sync confirms it
+            pendingPage = page; pendingAt = System.currentTimeMillis();   // frame moves now; items move when the server has swapped them
         }
     }
 }

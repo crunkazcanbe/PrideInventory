@@ -1,7 +1,6 @@
 package com.dogpound.prideinventory;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
@@ -19,6 +18,7 @@ public final class Net {
         CH.registerMessage(Flip.Handler.class, Flip.class, 1, Side.SERVER);
         CH.registerMessage(Buy.Handler.class, Buy.class, 2, Side.SERVER);
         CH.registerMessage(GoTo.Handler.class, GoTo.class, 3, Side.SERVER);
+        CH.registerMessage(Lock.Handler.class, Lock.class, 4, Side.SERVER);
     }
 
     static void sync(EntityPlayerMP p) {
@@ -29,7 +29,7 @@ public final class Net {
     public static class Sync implements IMessage {
         int unlocked, page, advancements, hours, blocksMined, mobKills, bought, granted;
         long nextPrice;
-        boolean everything;
+        boolean everything, shareOpen, giveWhenLocked;
 
         public Sync() {}
 
@@ -37,31 +37,28 @@ public final class Net {
             unlocked = i.unlocked; page = i.page; advancements = i.advancements; hours = i.hours;
             blocksMined = i.blocksMined; mobKills = i.mobKills; bought = i.bought; granted = i.granted;
             this.nextPrice = nextPrice; this.everything = everything;
+            shareOpen = i.shareOpen; giveWhenLocked = i.giveWhenLocked;
         }
 
         @Override
         public void toBytes(ByteBuf b) {
             b.writeInt(unlocked); b.writeInt(page); b.writeInt(advancements); b.writeInt(hours); b.writeInt(blocksMined);
             b.writeInt(mobKills); b.writeInt(bought); b.writeInt(granted); b.writeLong(nextPrice); b.writeBoolean(everything);
+            b.writeBoolean(shareOpen); b.writeBoolean(giveWhenLocked);
         }
 
         @Override
         public void fromBytes(ByteBuf b) {
             unlocked = b.readInt(); page = b.readInt(); advancements = b.readInt(); hours = b.readInt(); blocksMined = b.readInt();
             mobKills = b.readInt(); bought = b.readInt(); granted = b.readInt(); nextPrice = b.readLong(); everything = b.readBoolean();
+            shareOpen = b.readBoolean(); giveWhenLocked = b.readBoolean();
         }
 
         public static class Handler implements IMessageHandler<Sync, IMessage> {
             @Override
             public IMessage onMessage(Sync m, MessageContext ctx) {
-                Minecraft.getMinecraft().addScheduledTask(() -> {
-                    ExtraInv i = ExtraInv.of(Minecraft.getMinecraft().player);
-                    if (i == null) return;
-                    i.unlocked = m.unlocked; i.page = m.page; i.advancements = m.advancements; i.hours = m.hours;
-                    i.blocksMined = m.blocksMined; i.mobKills = m.mobKills; i.bought = m.bought; i.granted = m.granted;
-                    ClientHooks.nextPrice = m.nextPrice;
-                    ClientHooks.everything = m.everything;
-                });
+                // client-only work lives in ClientSync so a dedicated server never loads Minecraft.class
+                ClientSync.apply(m);
                 return null;
             }
         }
@@ -112,6 +109,28 @@ public final class Net {
             public IMessage onMessage(GoTo m, MessageContext ctx) {
                 EntityPlayerMP p = ctx.getServerHandler().player;
                 p.getServerWorld().addScheduledTask(() -> Pages.goTo(p, m.page));
+                return null;
+            }
+        }
+    }
+
+    /** the padlock: 0 = lock/unlock, 1 = gifts while locked on/off */
+    public static class Lock implements IMessage {
+        int what;
+        public Lock() {}
+        public Lock(int what) { this.what = what; }
+        @Override public void toBytes(ByteBuf b) { b.writeByte(what); }
+        @Override public void fromBytes(ByteBuf b) { what = b.readByte(); }
+
+        public static class Handler implements IMessageHandler<Lock, IMessage> {
+            @Override
+            public IMessage onMessage(Lock m, MessageContext ctx) {
+                EntityPlayerMP p = ctx.getServerHandler().player;
+                p.getServerWorld().addScheduledTask(() -> {
+                    ExtraInv o = ExtraInv.of(p);
+                    if (o == null) return;
+                    if (m.what == 1) Share.set(p, null, !o.giveWhenLocked); else Share.set(p, !o.shareOpen, null);
+                });
                 return null;
             }
         }

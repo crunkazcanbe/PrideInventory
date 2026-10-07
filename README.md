@@ -1,6 +1,6 @@
 # PrideInventory
 
-Extra inventory rows for Minecraft 1.12.2 that you unlock by playing, a scrollable rows panel, hotbar pages, and a full-width "wide hotbar" that shows every unlocked row along the bottom of the screen.
+Extra inventory rows for Minecraft 1.12.2 that you unlock by playing, a scrollable rows panel, hotbar pages, a full-width "wide hotbar" that shows every unlocked row along the bottom of the screen, and inventory sharing between players.
 
 ## About
 
@@ -55,8 +55,18 @@ On by default (`wideHotbar`).
 - The hotbar is drawn as a dark band across the whole bottom of the screen: page 1 (the real 9 slots), then every unlocked page row, left to right, each as its own hotbar strip with its page number above it.
 - The scroll wheel moves the selection along all of them. Stepping into another page asks the server to swap that row into the real hotbar, so the selected item is always really in your hand and every other mod still sees a normal 9-slot hotbar. Number keys pick within the current page.
 - Holding Shift, Ctrl or Alt leaves the scroll wheel to other mods. With only one page, vanilla scrolling is used.
+- The items always match the page the server has confirmed; while you scroll quickly only the selection frame moves ahead, so items never appear to jump into the next page and back.
 - When the pages are wider than the screen, the bar slides so the selected slot stays visible. The offhand slot is drawn to the left of the bar, or above its left end when the bar fills the width.
 - Hidden in spectator mode.
+- With PrideCanvas installed and its HUD theme active (and its themed-hotbar option on), the band and slots are drawn in the HUD theme's colours and style.
+
+### Inventory sharing
+- Right-click another player with an empty hand (not sneaking, by default) to open their inventory above your own: armour, offhand, main inventory, hotbar and their unlocked extra rows.
+- Everyone starts **locked**: others can only look. Unlock yours with the padlock in the top-right corner of your inventory, the "Lock / unlock your inventory for others" key (not bound by default), or `/invlock off`. Unlocked, others can take and give.
+- **Gifts while locked**: shift-click the padlock or use `/invlock gifts on` to let people give you items while they still cannot take any.
+- The owner gets a chat notice when someone opens their inventory, takes or gives (`notifyOwner`), and `/invlock log` shows the last 15 events (30 are kept).
+- The server decides everything: every click type (pick up, shift-click, number keys, drag, double-click, throw) re-checks the owner's current lock state, and the view closes when the players move apart (`maxDistance`), either dies or logs out, or the owner locks again.
+- Mods that use right-click on players and cancel it always win, and fake players are ignored.
 
 ### Death
 - By default the extra rows drop like the rest of the inventory when you die (`keepExtraRowsOnDeath = false`). The `keepInventory` gamerule keeps them.
@@ -76,6 +86,11 @@ If a file named `prideinventory-selftest` exists in the game folder, the first p
 | `/prideinv page [next\|back]` | Turn the hotbar page (`back`, or anything starting with `b`, turns backwards) |
 | `/prideinv grant <player> <rows>` | Give (or with a negative number take back) reward rows, between -12 and 12 |
 | `/prideinv recount [player]` | Recount unlocks now |
+| `/invlock` | Toggle your inventory lock |
+| `/invlock on` / `off` | Lock (others only look) / unlock (others can take and give) |
+| `/invlock gifts on\|off` | Allow or refuse gifts while locked |
+| `/invlock status` | Show your current sharing state |
+| `/invlock log` | The last 15 times someone opened, took from or gave to your inventory |
 
 ### Keybinds
 Category "PrideInventory".
@@ -84,6 +99,7 @@ Category "PrideInventory".
 |---|---|---|
 | Next hotbar page | `'` (apostrophe) | Turn one page forward |
 | Previous hotbar page | not bound | Turn one page back |
+| Lock / unlock your inventory for others | not bound | Toggle inventory sharing |
 
 ## Config
 
@@ -130,6 +146,14 @@ Payments go from the player's account to a business account "Inventory Rows" (`b
 | `opsUnlockAll` | `false` | Ops always have every row |
 | `alwaysUnlockedPlayers` | empty | Player names that always have every row, even in survival |
 
+### `inventory_sharing`
+| Key | Default | Effect |
+|---|---|---|
+| `enabled` | `true` | Turn inventory sharing on or off for the whole server |
+| `openWith` | `empty_hand` | What opens someone's inventory: `empty_hand` (right-click, empty hand, not sneaking), `sneak_empty_hand`, `any_empty_hand` |
+| `maxDistance` | `6` | The view closes when the two players are farther apart than this (2-64 blocks) |
+| `notifyOwner` | `true` | Tell the owner in chat when someone opens, takes or gives (always written to `/invlock log`) |
+
 ### `death`
 | Key | Default | Effect |
 |---|---|---|
@@ -167,11 +191,6 @@ The jar is written to `build/libs/`. The project targets Java 8 (ForgeGradle 3, 
 
 MIT License. © 2026 crunkazcanbe.
 
-## Credits
-
-Made by crunkazcanbe, with Claude.
-
-
 ## Compile-only jars
 
 The build compiles against these jars in `libs/` (other authors' mods / APIs). They are not included in this repo — get them from their official pages and drop them in `libs/` before building:
@@ -179,3 +198,7 @@ The build compiles against these jars in `libs/` (other authors' mods / APIs). T
 - `mixinbooter-api.jar`
 - `realmcoin-dev.jar`
 - `sponge-mixin.jar`
+
+## Credits
+
+Made with [Claude Code](https://claude.com/claude-code) and [Blockbench](https://www.blockbench.net).
